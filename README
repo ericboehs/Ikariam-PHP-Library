@@ -1,0 +1,12 @@
+Ikariam PHP Library
+
+Author: Eric Boehs
+
+
+This is a PHP library that uses Simple HTML DOM v1.11 by S.C. Chen to parse the 
+Ikariam site for resources and other data needed to execute game actions
+
+Features:
+-Logins to Ikariam's site
+-Gets the resource quantities for all that account's cities
+-Transports Freight (if you stand on one foot and touch your nose)
