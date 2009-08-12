@@ -144,8 +144,11 @@ function getResources($html){
 
 	//Get the city names
 	foreach($html->find('#citySelect') as $option){
-		foreach($option->find('option') as $e)
-			$ikariam['cities']['names'][$e->value] = $e->plaintext;
+		foreach($option->find('option') as $e){
+			$city_name = $e->plaintext;
+			list($dev_null, $city_name) = explode("] ",$city_name);
+			$ikariam['cities']['names'][$e->value] = $city_name;
+		}
 	}
 
 	//Get the hidden inputs
@@ -162,7 +165,7 @@ function getResources($html){
 	}
 	if(isset($view_city_href['id'])){
 		$ikariam['current_city_id'] = $view_city_href['id'];
-		list($dev_null, $ikariam['current_city']) = explode("] ",$ikariam['cities']['names'][$view_city_href['id']]);
+		$ikariam['current_city'] = $ikariam['cities']['names'][$view_city_href['id']];
 	}
 
 	foreach($html->find('li.viewIsland') as $li){
