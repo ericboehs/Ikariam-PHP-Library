@@ -1,0 +1,8 @@
+<?php
+
+$tld = 'com'; //The last part of ikariam.com, ikariam.org, or whatever you use
+$world = 'Alpha'; //The world you play on 
+$user = 'Hercules'; //Your username
+$pass = 'secret'; //Your password
+
+?>
