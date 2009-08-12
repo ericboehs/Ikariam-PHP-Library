@@ -11,6 +11,9 @@ function fetchContents($url, $params=NULL, $cookie=NULL, $debug=FALSE){
 	if($cookie === NULL){
 		$cookie = tempnam("/tmp", "CURLCOOKIE");
 		$ikariam['session']['cookie'] = $cookie;
+		if (!is_dir('tmp')){
+			mkdir('tmp'); 
+		}
 		file_put_contents('tmp/cookies.txt', $cookie);
 		curl_setopt($ch, CURLOPT_COOKIEJAR, $cookie);
 	}else{
