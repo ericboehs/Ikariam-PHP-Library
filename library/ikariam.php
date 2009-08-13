@@ -1,114 +1,131 @@
 <?
 
-function fetchContents($url, $params=NULL, $cookie=NULL, $debug=FALSE){
+/**
+ * Uses curl to fetch the base_url.  It will accept params for POST, and a cookie file
+ * if you have a cookie to send to the server.  It will also reset the session
+ * cookie listed in $ikariam if the ikariam=deleted cookie comes back from the server.
+ *
+ * @param array $params Array of POST AND GET parameters to submit to server
+ * @return string|bool Returns the html coming back from curl on success, and false
+ * on failure.
+ * @author Eric Boehs
+ **/
+function fetchContents($params=NULL){
 	global $ikariam;
+
+	//Get the base url
+	$url = $ikariam['session']['base_url'];
+	//Create the query string for GET requests
+	if(isset($params['get'])){
+		$uri = http_build_query($params['get']);
+		$url = $url ."?". $uri;
+	}
+
+	//Get the cookie from previous session if it exists
+	//FIXME: Possible problem with the cookie getting setting without a check
+	$ikariam['session']['cookie'] = @file_get_contents('tmp/cookies.txt');
+	$cookie = $ikariam['session']['cookie'];
+
+	//Spoof the user agent in case the check for CURL and ban users for some reason
 	$user_agent="Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.5; en-US; rv:1.9.1.2) Gecko/20090729 Firefox/3.5.2";
+
+	//Init curl, return false on failure
 	$ch = curl_init();
 	if (!$ch)
-		die( "Cannot allocate a new PHP-CURL handle" );
+		return false;
 
+	//Set the url
 	curl_setopt($ch, CURLOPT_URL, $url);
-	if($cookie === NULL){
-		$cookie = tempnam("/tmp", "CURLCOOKIE");
-		$ikariam['session']['cookie'] = $cookie;
-		if (!is_dir('tmp')){
-			mkdir('tmp'); 
-		}
-		file_put_contents('tmp/cookies.txt', $cookie);
+	//Check to see if a cookie is set, if it's not let's create one
+	if($cookie === FALSE){
+		$cookie = tempnam("/tmp", "CURLCOOKIE");  //Creates a file w/ a unique name
+		$ikariam['session']['cookie'] = $cookie; //Sets the global session key to the new cookie
+		//Make sure the directory we're about to write the cookie to exists, if not make it
+		if (!is_dir('tmp'))
+			mkdir('tmp');
+		//I could probably just save the cookie itself to this file :/
+		file_put_contents('tmp/cookies.txt', $cookie); //Store where the cookie file is
+		//Fetch the cookie from the server and store it in the cookie file
 		curl_setopt($ch, CURLOPT_COOKIEJAR, $cookie);
 	}else{
-		curl_setopt ($ch, CURLOPT_COOKIEFILE, $cookie);
+		//If $cookie is set to something besides null, send it to the server
+		curl_setopt ($ch, CURLOPT_COOKIEFILE, $cookie); //Sends the actual contents of the cookie file
 	}
-	curl_setopt($ch, CURLOPT_ENCODING, 'gzip');
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_HEADER, true);
-	curl_setopt($ch, CURLOPT_USERAGENT, $user_agent);
-	if($params != NULL){
+	curl_setopt($ch, CURLOPT_ENCODING, 'gzip'); //Accept gzip encoding (much smaller page sizes, yay)
+	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true); //Gets the server response??
+	curl_setopt($ch, CURLOPT_HEADER, true); // Gets headers from server
+	curl_setopt($ch, CURLOPT_USERAGENT, $user_agent); //Sets the user agent to what we specified earlier
+	
+	//If post is set, build it into a query string and POST it to the server
+	if(isset($params['post'])){
 		curl_setopt($ch, CURLOPT_POST, true);
-		curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params));
+		curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($params['post']));
 	}
-	$response = curl_exec($ch);
-	curl_close($ch);
+	$response = curl_exec($ch); //Execute the query and save the response
+	curl_close($ch); //Close the connection
 
+	//If there's a body, split it form the header
 	if(strpos($response, "\r\n\r\n"))
 		list($header, $body) = explode("\r\n\r\n", $response, 2);
-	else
-		return $response;
+	else //just return the header if there's no body
+		return $response; //This seems flawed.  If a del cookie reqs comes through it won't be caught
 
+	//Unset the cookie file if the server says it's expired
 	if(strpos($header, 'ikariam=deleted')){
 		$ikariam['session']['logged_in'] = FALSE;
 		if(isset($ikariam['session']['cookie']))
 			unset($ikariam['session']['cookie']);
-	}else{
+		if(file_exists('tmp/cookies.txt'))
+			unlink('tmp/cookies.txt');
+	}else{ //If all is good set logged_in
 		$ikariam['session']['logged_in'] = TRUE;
 	}
-
-	if($debug){
-		echo "<pre>"; print_r ($header); echo "</pre>";
-	}
+	//and return the body (for cleaner html parsing)
 	return $body;
 }
 
+/**
+ * Creates a base url to submit queries to.
+ *
+ * @param string $tld Top Level Domain of the server to connect to (e.g. .com,.org, etc)
+ * @return string The base url derived
+ * @author Eric Boehs
+ **/
 function getBaseURL($tld, $world){
-	$worlds = array(
-		'Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa'
-	);
-
-	$world = array_search($world, $worlds);
-	$world++;
-
-	$base_url = "http://s$world.ikariam.$tld/index.php";
+	$base_url = "http://$world.ikariam.$tld/index.php";
 	return $base_url;
 }
 
-function checkLogin(){
-	global $ikariam;
-	$ikariam['session']['cookie'] = @file_get_contents('tmp/cookies.txt');
-	$base_url = $ikariam['session']['base_url'];
-	$uri = '';
-	$url = $base_url ."?". $uri;
-	if(!isset($ikariam['session']['cookie']))
-		$ikariam['session']['cookie'] = NULL;
-	
-	$response = fetchContents($url, NULL, $ikariam['session']['cookie']);
-	
-	if(isset($ikariam['session']['logged_in']) && $ikariam['session']['logged_in'])
-		return true;
-	else
-		return false;
-}
-
+/**
+ * 
+ * 
+ * @param string $user 
+ * @param string $pass 
+ * @return string $resposne from fetchContents()
+ * @author Eric Boehs
+ **/
 function doLogin($user, $pass){
-	global $ikariam;
-	if(checkLogin($ikariam))
-		return true;
-	//echo "Logging in<br/>\n";
-	$base_url = $ikariam['session']['base_url'];
-	$uri = 'action=loginAvatar&function=login';
-	$url = $base_url ."?". $uri;
-	$params = array(
+	$params['get'] = array(
+		'action' => 'loginAvatar',
+		'function' => 'login'
+	);
+	$params['post'] = array(
 		'name' => $user,
 		'password' => $pass
 	);
-	if(!isset($ikariam['session']['cookie']))
-		$ikariam['session']['cookie'] = NULL;
-	$response = fetchContents($url, $params, $ikariam['session']['cookie']);
-
-	$ikariam['session']['logged_in'] = TRUE;
-	return $response;
+	getResources(fetchContents($params));
+	return true;
 }
 
 function changeCurrentCity($city){
 	global $ikariam;
+	//TODO: If $city isn't numeric, do a lookup
 	if(!isset($ikariam['hidden_inputs']['actionRequest']))
 		return false;
 	if($ikariam['current_city_id'] == $city)
 		return false;
 
-	$base_url = $ikariam['session']['base_url'];
-	$uri = '';
-	$url = $base_url ."?". $uri;
-	$params = array(
+	$params['post'] = array(
 		'action' => 'header',
 		'function' => 'changeCurrentCity',
 		'actionRequest' => $ikariam['hidden_inputs']['actionRequest'],
@@ -116,24 +133,15 @@ function changeCurrentCity($city){
 		'id' => $ikariam['current_city_id'],
 		'cityId' => $city
 	);
-	if(!isset($ikariam['session']['cookie']))
-		$ikariam['session']['cookie'] = NULL;
-	$response = fetchContents($url, $params, $ikariam['session']['cookie']);
-	$ikariam = getResources($response);
+	$ikariam = getResources(fetchContents($params));
 	return true;
 }
 
 function updateResources(){
-	global $ikariam;
-	cleanIkariam();
-	$base_url = $ikariam['session']['base_url'];
-	$uri = '';
-	$url = $base_url ."?". $uri;
-	$url = $base_url;
-	if(!isset($ikariam['session']['cookie']))
-		$ikariam['session']['cookie'] = NULL;
-	$response = fetchContents($url, NULL, $ikariam['session']['cookie'],FALSE);
-	return getResources($response);
+	$params['get'] = array(
+		'view' => 'city',
+	);
+	return getResources(fetchContents($params));
 }
 
 function getResources($html){
@@ -150,14 +158,12 @@ function getResources($html){
 			$ikariam['cities']['names'][$e->value] = $city_name;
 		}
 	}
-
 	//Get the hidden inputs
 	foreach($html->find('input') as $e){
 		$ikariam['hidden_inputs'][$e->name] = $e->value;
 	}
 
 	//Get the current city name
-
 	foreach($html->find('li.viewCity') as $li){
 		foreach($li->find('a') as $e)
 			$view_city_href = html_entity_decode(substr($e->href,1));
@@ -167,7 +173,8 @@ function getResources($html){
 		$ikariam['current_city_id'] = $view_city_href['id'];
 		$ikariam['current_city'] = $ikariam['cities']['names'][$view_city_href['id']];
 	}
-
+	
+	//Get current island id
 	foreach($html->find('li.viewIsland') as $li){
 		foreach($li->find('a') as $e)
 			$view_island_href = html_entity_decode(substr($e->href,1));
@@ -176,7 +183,8 @@ function getResources($html){
 	if(isset($view_island_href['id'])){
 		$ikariam['current_island_id'] = $view_island_href['id'];
 	}
-	//Get the ships
+	
+	//Get ships
 	foreach($html->find('li.transporters span') as $e){
 		if($e->class === FALSE){
 			$ships_raw = substr($e->plaintext,0,-1);
@@ -187,6 +195,7 @@ function getResources($html){
 			$ikariam['cities']['global']['resources']['ships'] = "$ships[0]/ $ships[1]";
 		}
 	}
+	
 	//Get the ambrosia
 	foreach($html->find('li.ambrosia span') as $e){
 		if($e->class === FALSE){
@@ -219,6 +228,24 @@ function getResources($html){
 		$capacity = explode(': ', $e->plaintext);
 		$ikariam['cities'][$view_city_href['id']]['resources']['capacity'] = str_replace(",", "", $capacity[1]);
 	}
+	
+	//Get the buildings
+	foreach($html->find('ul#locations') as $li){
+		$i=0;
+		foreach($li->find("a .textLabel") as $e){
+			if($e->plaintext != 'In order to build here, you must research bureaucracy' && $e->plaintext != 'Free Building Ground'){
+				if(substr($e->plaintext,'-19','-1') == "Under construction")
+					$e->plaintext = str_replace(" (Under construction)",'',$e->plaintext);
+				
+				list($building, $level) = explode(' Level ', $e->plaintext);
+				
+				$ikariam['cities'][$ikariam['current_city_id']]['buildings'][$building]['position'] = $i;
+				$ikariam['cities'][$ikariam['current_city_id']]['buildings'][$building]['level'] = $level;
+			}
+			$i++;
+		}
+	}
+	
 	return $ikariam;
 }
 
@@ -226,31 +253,32 @@ function getIslandIDs(){
 	global $ikariam;
 	if(!isset($ikariam['cities']))
 		return false;
+	if(!function_exists('str_get_html'))
+		return false;
 	foreach($ikariam['cities']['names'] as $city => $city_name){
-		if(!function_exists('str_get_html'))
-			return false;
+		//If the current city is already set in $ikariam then don't repopulate the data
+		if(isset($ikariam['cities'][$city]))
+			continue;
 		changeCurrentCity($city);
 		//Probably wouldn't do it this way if $city isn't unique - Need to check with Ikariam authors
+		//If it's not unique, city should be a child of ['islands'][$island_id]
 		$ikariam['cities'][$city]['island'] = $ikariam['current_island_id'];
 	}
 	return $ikariam;
 }
 
 function transportFreight($fromCity, $toIsland, $toCity, $wood=0, $marble=0, $wine=0, $crystal=0, $sulfur=0){
-	//Not fully implemented
+	//Function not fully implemented
 	global $ikariam;
+
 	if($ikariam['current_city_id'] != $fromCity)
 		changeCurrentCity($fromCity);
 	if($ikariam['current_city_id'] != $fromCity)
 		return false;
 	if(!isset($ikariam['hidden_inputs']['actionReuest']))
-		$ikariam = updateResources($ikariam);
+		$ikariam = updateResources();
 
-	$base_url = $ikariam['session']['base_url'];
-	$uri = '';
-	$url = $base_url ."?". $uri;
-	$url = $base_url;
-	$params = array(
+	$params['post'] = array(
 		'action' => 'transportOperations',
 		'function' => 'loadTransportersWithFreight',
 		'actionRequest' => $ikariam['hidden_inputs']['actionRequest'],
@@ -263,34 +291,44 @@ function transportFreight($fromCity, $toIsland, $toCity, $wood=0, $marble=0, $wi
 		'cargo_resource4' => $sulfur,
 		'transporters' => ceil(($wood+$marble+$wine+$crystal+$sulfur)/500)
 	);
-	if(!isset($ikariam['session']['cookie']))
-		$ikariam['session']['cookie'] = NULL;
-	$response = fetchContents($url, $params, $ikariam['session']['cookie']);
+	$response = fetchContents($params);
 	echo "<pre>"; print_r ($response); die("</pre>");
 	return true;
 }
 
-function cleanIkariam(){
-	//Not fully implemented
+function upgradeBuilding($city, $building){
 	global $ikariam;
-	if(isset(
-			$ikariam['cities'],
-			$ikariam['hidden_inputs'],
-			$ikariam['current_island_id'],
-			$ikariam['current_city_id'],
-			$ikariam['current_city'],
-			$ikariam['ships'],
-			$ikariam['resources']
-		)
-	){
-		unset(
-			$ikariam['cities'],
-			$ikariam['hidden_inputs'],
-			$ikariam['current_island_id'],
-			$ikariam['current_city_id'],
-			$ikariam['current_city'],
-			$ikariam['ships'],
-			$ikariam['resources']
-		);
-	}
+	
+	if(is_numeric($city))
+		$city_id = $city;
+	else
+		$city_id = array_search($city,$ikariam['cities']['names']);
+	
+	if(!is_numeric($city))
+		return '400';
+
+	$params['get'] = array(
+		'action' => 'CityScreen',
+		'function' => 'upgradeBuilding',
+		'id' => $city_id,
+		'position' => $ikariam['cities'][$city_id]['buildings'][$building]['position'],
+		'level' => $ikariam['cities'][$city_id]['buildings'][$building]['level'],
+		'actionRequest' => $ikariam['hidden_inputs']['actionRequest']
+	);
+	return fetchContents($params);
+}
+
+function demolishBuilding($city, $building){
+	$demo = 'http://s8.ikariam.com/index.php?view=buildings_demolition&id=49447&position=12&actionRequest=b0df5ab63795508d49c4ab35dc63f66d';
+}
+
+/**
+ * This will check the status of the response html returned from fetchContents
+ *
+ * @param string $html - HTML tag for 
+ * @return int Status Code
+ * @author Eric Boehs
+ **/
+function checkResponseForErrors($html){
+	
 }
