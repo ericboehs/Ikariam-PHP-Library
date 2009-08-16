@@ -63,7 +63,7 @@ function fetchContents($params=NULL){
 	}
 	$response = curl_exec($ch); //Execute the query and save the response
 	curl_close($ch); //Close the connection
-
+	
 	//If there's a body, split it form the header
 	if(strpos($response, "\r\n\r\n"))
 		list($header, $body) = explode("\r\n\r\n", $response, 2);
@@ -80,6 +80,7 @@ function fetchContents($params=NULL){
 	}else{ //If all is good set logged_in
 		$ikariam['session']['logged_in'] = TRUE;
 	}
+	
 	//and return the body (for cleaner html parsing)
 	return $body;
 }
@@ -192,7 +193,6 @@ function getResources($html){
 			$ikariam['cities']['global']['resources']['ships']['atsea'] =  $ships[1]-$ships[0];
 			$ikariam['cities']['global']['resources']['ships']['available'] =  $ships[0];
 			$ikariam['cities']['global']['resources']['ships']['total'] =  $ships[1];
-			$ikariam['cities']['global']['resources']['ships'] = "$ships[0]/ $ships[1]";
 		}
 	}
 	
@@ -219,7 +219,7 @@ function getResources($html){
 		$ikariam['cities'][$view_city_href['id']]['resources']['wine'] =  str_replace(",", "", $e->plaintext);
 	}
 	foreach($html->find('#value_crystal') as $e){
-		$ikariam['cities'][$view_city_href['id']]['resources']['crystal'] =  str_replace(",", "", $e->plaintext);
+		$ikariam['cities'][$view_city_href['id']]['resources']['glass'] =  str_replace(",", "", $e->plaintext);
 	}
 	foreach($html->find('#value_sulfur') as $e){
 		$ikariam['cities'][$view_city_href['id']]['resources']['sulfur'] =  str_replace(",", "", $e->plaintext);
@@ -257,8 +257,10 @@ function getIslandIDs(){
 		return false;
 	foreach($ikariam['cities']['names'] as $city => $city_name){
 		//If the current city is already set in $ikariam then don't repopulate the data
-		if(isset($ikariam['cities'][$city]))
+		if(isset($ikariam['cities'][$city])){
+			$ikariam['cities'][$city]['island'] = $ikariam['current_island_id'];
 			continue;
+		}
 		changeCurrentCity($city);
 		//Probably wouldn't do it this way if $city isn't unique - Need to check with Ikariam authors
 		//If it's not unique, city should be a child of ['islands'][$island_id]
@@ -267,16 +269,28 @@ function getIslandIDs(){
 	return $ikariam;
 }
 
-function transportFreight($fromCity, $toIsland, $toCity, $wood=0, $marble=0, $wine=0, $crystal=0, $sulfur=0){
-	//Function not fully implemented
+function transportFreight($fromCity, $toCity, $resources){
 	global $ikariam;
+
+	if(is_numeric($fromCity))
+		$fromCity = $fromCity;
+	else
+		$fromCity = array_search($fromCity,$ikariam['cities']['names']);
+
+	if(is_numeric($toCity))
+		$toCity = $toCity;
+	else
+		$toCity = array_search($toCity,$ikariam['cities']['names']);
+	
+	if(!is_numeric($fromCity) || !is_numeric($toCity))
+		return '400';
 
 	if($ikariam['current_city_id'] != $fromCity)
 		changeCurrentCity($fromCity);
 	if($ikariam['current_city_id'] != $fromCity)
 		return false;
-	if(!isset($ikariam['hidden_inputs']['actionReuest']))
-		$ikariam = updateResources();
+	
+	$toIsland = $ikariam['cities'][$toCity]['island'];
 
 	$params['post'] = array(
 		'action' => 'transportOperations',
@@ -284,15 +298,19 @@ function transportFreight($fromCity, $toIsland, $toCity, $wood=0, $marble=0, $wi
 		'actionRequest' => $ikariam['hidden_inputs']['actionRequest'],
 		'destinationCityId' => $toCity,
 		'id' => $toIsland,
-		'cargo_resource' => $wood,
-		'cargo_resource1' => $marble,
-		'cargo_resource2' => $wine,
-		'cargo_resource3' => $crystal,
-		'cargo_resource4' => $sulfur,
-		'transporters' => ceil(($wood+$marble+$wine+$crystal+$sulfur)/500)
+		'cargo_resource' 	=> $resources['wood'],
+		'cargo_tradegood1' => $resources['wine'],
+		'cargo_tradegood2' => $resources['marble'],
+		'cargo_tradegood3' => $resources['glass'],
+		'cargo_tradegood4' => $resources['sulfur'],
+		'transporters' => ceil(($resources['wood']+$resources['marble']+$resources['wine']+$resources['glass']+$resources['sulfur'])/500)
 	);
 	$response = fetchContents($params);
-	echo "<pre>"; print_r ($response); die("</pre>");
+	checkResponseForErrors($response);
+	if(isset($ikariam['errors']['error']) && $ikariam['errors']['error']){
+		unset($ikariam['errors']);
+		return false;
+	}
 	return true;
 }
 
@@ -300,9 +318,9 @@ function upgradeBuilding($city, $building){
 	global $ikariam;
 	
 	if(is_numeric($city))
-		$city_id = $city;
+		$city = $city;
 	else
-		$city_id = array_search($city,$ikariam['cities']['names']);
+		$city = array_search($city,$ikariam['cities']['names']);
 	
 	if(!is_numeric($city))
 		return '400';
@@ -310,16 +328,177 @@ function upgradeBuilding($city, $building){
 	$params['get'] = array(
 		'action' => 'CityScreen',
 		'function' => 'upgradeBuilding',
-		'id' => $city_id,
-		'position' => $ikariam['cities'][$city_id]['buildings'][$building]['position'],
-		'level' => $ikariam['cities'][$city_id]['buildings'][$building]['level'],
+		'id' => $city,
+		'position' => $ikariam['cities'][$city]['buildings'][$building]['position'],
+		'level' => $ikariam['cities'][$city]['buildings'][$building]['level'],
 		'actionRequest' => $ikariam['hidden_inputs']['actionRequest']
 	);
 	return fetchContents($params);
 }
 
 function demolishBuilding($city, $building){
-	$demo = 'http://s8.ikariam.com/index.php?view=buildings_demolition&id=49447&position=12&actionRequest=b0df5ab63795508d49c4ab35dc63f66d';
+	global $ikariam;
+	
+	if(is_numeric($city))
+		$city = $city;
+	else
+		$city = array_search($city,$ikariam['cities']['names']);
+	
+	if(!is_numeric($city))
+		return '400';
+
+	$params['get'] = array(
+		'action' => 'CityScreen',
+		'function' => 'downgradeBuilding',
+		'id' => $city,
+		'position' => $ikariam['cities'][$city]['buildings'][$building]['position'],
+		'level' => $ikariam['cities'][$city]['buildings'][$building]['level'],
+		'actionRequest' => $ikariam['hidden_inputs']['actionRequest']
+	);
+	return fetchContents($params);
+}
+
+function updateTownHall($city){
+	
+}
+
+function checkTransports(){
+	global $ikariam;
+	if(!function_exists('str_get_html'))
+		return false;
+	
+	$params['get'] = array(
+		'view' => 'militaryAdvisorMilitaryMovements'
+	);
+	
+	$response = fetchContents($params);
+	$html = str_get_html($response);
+	
+	
+	// $ikariam['transports'][0] = array(
+	// 		'time' => array(
+	// 				'days' => '0',
+	// 				'hours' => '0',
+	// 				'minutes' => '12',
+	// 				'seconds' => '50'
+	// 		),
+	// 		'ships' => '1',
+	// 		'transport' => array(
+	// 			'type' => 'glass',
+	// 			'amount' => '500'
+	// 		),
+	// 		'origin' => array(
+	// 			'city' => 'Wood for Sheep',
+	// 			'user' => 'ericboehs',
+	//			'city_id' => '12356'
+	// 		),
+	// 		'target' => array(
+	// 			'city' => 'Cloverfield',
+	// 			'user' => 'ericboehs'
+	// 		),
+	// 		'mission' => 'transport'
+				
+	// 	);
+	// 	
+	
+	//Get the locationEvents table
+	foreach($html->find('table.locationEvents tbody') as $table){
+		$i=0; //Set a counter for counting ships
+		
+		//Loop through all the rows of the table
+		foreach($table->find('tr') as $tr){
+			//Skip the first row as it's the header
+			if($i == 0){
+				$i++; continue;
+			}
+			//Set the transport reference variable
+			$t = &$ikariam['transports'][$i-1];
+			//Get the time of arrival
+			foreach($tr->find('td[title="Time of arrival"]') as $e){
+				
+				//The id of this element also specified the eventId for the transport
+				//It begins with fleetRow so we'll stripe that away and set it in 1 line
+				$eventId = str_replace('fleetRow','',$e->id);
+				$t['event_id'] = $eventId;
+				
+				//Arrival times comes back space seperated - Make it an array.
+				//Also reverse it so the values increase from smallest to largest
+				$arrivaltime = array_reverse(explode(" ",$e->plaintext));
+				
+				//Get rid of the units (s for seconds, m for minutes, etc) and trim the spaces off
+				foreach($arrivaltime as $key => $value)
+					$arrivaltime[$key] = substr(trim($value),0,-1);
+				//Set a reference so the longer variable doesn't have to be typed out each time
+				$time = &$ikariam['transports'][$i-1]['time'];
+				//Set the time for this transport in the $ikariam array
+				@list($time['seconds'],$time['minutes'],$time['hours'],$time['days'],$time['weeks']) = $arrivaltime;
+			}
+			
+			//Get the ships count and what's being shipped
+			foreach($tr->find('div.unitBox') as $e){
+				switch($e->title){
+					case "Cargo Ship":
+						$t['transport']['cargo_ship'] = $e->plaintext;
+						break;
+					case "Building material":
+						$t['transport']['wood'] = $e->plaintext;
+						break;
+					case "Wine":
+						$t['transport']['wine'] = $e->plaintext;
+						break;
+					case "Marble":
+						$t['transport']['marble'] = $e->plaintext;
+						break;
+					case "Crystal Glass":
+						$t['transport']['glass'] = $e->plaintext;
+						break;
+					case "Sulfur":
+						$t['transport']['sulfur'] = $e->plaintext;
+						break;
+					default:
+						$t['transport'][str_replace(" ","_",strtolower($e->title))] = $e->plaintext;
+				}
+			}
+			
+			//Get the orgin city and user
+			foreach($tr->find('td[title="Origin"]') as $e){
+				foreach($e->find('a') as $a){
+					parse_str($a->href, $href);	
+					$t['origin']['city_id'] = $href['cityId'];
+				}
+				list($t['origin']['city'],$t['origin']['user']) = explode(" (",substr($e->plaintext,0,-1));
+			}
+			
+			//Get the target city and user
+			foreach($tr->find('td[title="Target"]') as $e){
+				foreach($e->find('a') as $a){
+					parse_str($a->href, $href);	
+					$t['target']['city_id'] = $href['cityId'];
+				}
+				list($t['target']['city'],$t['target']['user']) = explode(" (",substr($e->plaintext,0,-1));
+			}
+			
+			//Get mission and arrow
+			foreach($tr->find('td img') as $e){
+				if($e->parent()->title){
+					list($mission,$status) = explode('_(',str_replace(" ","_",(str_replace(')','',strtolower($e->parent()->title)))));
+					$mission = str_replace('(','_',$mission);
+					$t['mission'] = $mission;
+					$t['status'] = $status;
+				}
+
+			}
+			if(isset($tr->innertext))
+				//echo $tr->innertext;
+			$i++;
+		}
+	}
+	getResources($html);
+	return true;
+}
+
+function updateAllTownHalls(){
+	
 }
 
 /**
@@ -330,5 +509,23 @@ function demolishBuilding($city, $building){
  * @author Eric Boehs
  **/
 function checkResponseForErrors($html){
-	
+	global $ikariam;
+	if(!function_exists('str_get_html'))
+		return false;
+	$html = str_get_html($html);
+
+	//Get the city names
+	foreach($html->find('#breadcrumbs span.textLabel') as $e){
+		if($e->plaintext == 'Error!')
+			$error = TRUE;
+		else
+			$error = FALSE;
+	}
+	if($error){
+		$ikariam['errors']['error'] = true;
+		foreach($html->find('.content ul li') as $error){
+			$ikariam['errors']['messages'][] = $error->plaintext;
+		}
+	}
+	return;
 }
