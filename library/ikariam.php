@@ -234,13 +234,20 @@ function getResources($html){
 		$i=0;
 		foreach($li->find("a .textLabel") as $e){
 			if($e->plaintext != 'In order to build here, you must research bureaucracy' && $e->plaintext != 'Free Building Ground'){
-				if(substr($e->plaintext,'-19','-1') == "Under construction")
+				if(substr($e->plaintext,'-19','-1') == "Under construction"){
 					$e->plaintext = str_replace(" (Under construction)",'',$e->plaintext);
+					$upgrading = TRUE;
+				}else{
+					$upgrading = FALSE;
+				}
 				
 				list($building, $level) = explode(' Level ', $e->plaintext);
 				
 				$ikariam['cities'][$ikariam['current_city_id']]['buildings'][$building]['position'] = $i;
 				$ikariam['cities'][$ikariam['current_city_id']]['buildings'][$building]['level'] = $level;
+				if($upgrading){
+					$ikariam['cities'][$ikariam['current_city_id']]['buildings'][$building]['upgrading'] = TRUE;
+				}
 			}
 			$i++;
 		}
