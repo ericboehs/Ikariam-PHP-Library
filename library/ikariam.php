@@ -291,6 +291,17 @@ function transportFreight($fromCity, $toCity, $resources){
 		return false;
 	
 	$toIsland = $ikariam['cities'][$toCity]['island'];
+	
+	if(!isset($resources['wood']))
+		$resources['wood'] = 0;
+	if(!isset($resources['wine']))
+		$resources['wine'] = 0;
+	if(!isset($resources['marble']))
+		$resources['marble'] = 0;
+	if(!isset($resources['glass']))
+		$resources['glass'] = 0;
+	if(!isset($resources['sulfur']))
+		$resources['sulfur'] = 0;
 
 	$params['post'] = array(
 		'action' => 'transportOperations',
@@ -306,6 +317,7 @@ function transportFreight($fromCity, $toCity, $resources){
 		'transporters' => ceil(($resources['wood']+$resources['marble']+$resources['wine']+$resources['glass']+$resources['sulfur'])/500)
 	);
 	$response = fetchContents($params);
+	getResources($response);
 	checkResponseForErrors($response);
 	if(isset($ikariam['errors']['error']) && $ikariam['errors']['error']){
 		unset($ikariam['errors']);
@@ -373,33 +385,6 @@ function checkTransports(){
 	
 	$response = fetchContents($params);
 	$html = str_get_html($response);
-	
-	
-	// $ikariam['transports'][0] = array(
-	// 		'time' => array(
-	// 				'days' => '0',
-	// 				'hours' => '0',
-	// 				'minutes' => '12',
-	// 				'seconds' => '50'
-	// 		),
-	// 		'ships' => '1',
-	// 		'transport' => array(
-	// 			'type' => 'glass',
-	// 			'amount' => '500'
-	// 		),
-	// 		'origin' => array(
-	// 			'city' => 'Wood for Sheep',
-	// 			'user' => 'ericboehs',
-	//			'city_id' => '12356'
-	// 		),
-	// 		'target' => array(
-	// 			'city' => 'Cloverfield',
-	// 			'user' => 'ericboehs'
-	// 		),
-	// 		'mission' => 'transport'
-				
-	// 	);
-	// 	
 	
 	//Get the locationEvents table
 	foreach($html->find('table.locationEvents tbody') as $table){
@@ -486,14 +471,11 @@ function checkTransports(){
 					$t['mission'] = $mission;
 					$t['status'] = $status;
 				}
-
 			}
-			if(isset($tr->innertext))
-				//echo $tr->innertext;
 			$i++;
 		}
 	}
-	getResources($html);
+	getResources($response);
 	return true;
 }
 
@@ -521,7 +503,7 @@ function checkResponseForErrors($html){
 		else
 			$error = FALSE;
 	}
-	if($error){
+	if(isset($error) && $error){
 		$ikariam['errors']['error'] = true;
 		foreach($html->find('.content ul li') as $error){
 			$ikariam['errors']['messages'][] = $error->plaintext;

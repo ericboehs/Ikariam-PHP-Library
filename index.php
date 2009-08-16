@@ -13,28 +13,28 @@ $ikariam = getIslandIDs();
 
 checkTransports();
 
-
-//echo "<pre>".
-//transportFreight($ikariam['current_city_id'],'176','46774','1000','0','0','0','0');
-
-//$json[] = $ikariam['cities']['names']['49447'];
-
-//$json = array_merge($json, $ikariam['cities']['global']['resources'],$ikariam['cities']['46774']['resources']);
-//echo json_encode(array_values($json));
-
-//echo json_encode($ikariam);
-
 //Town name is case sensitive; you can use your town's id instead if you want
 //upgradeBuilding('Your Town Name','Name of Building');
 
 
-//EXAMPLE of how to transport all wood that you can, from one island to another
+//EXAMPLE of how to transport all wine that you can, from one island to another
 //in increments of 500.  So if you have 1200 wood and 3 ships available, it'll just
 //send over 1000 wood
 
+$wine_city_id = '51345';
 //Set the resource you want to monitor
-$resource = $ikariam['cities']['49447']['resources']['wood'];
+$resource = $ikariam['cities'][$wine_city_id]['resources']['wine'];
+$shipsAvailable = $ikariam['cities']['global']['resources']['ships']['available'];
+$transportMax = $shipsAvailable * 500;
+
 //See if we have at least 500 of that resource
+foreach($ikariam['cities']['names'] as $city_id => $city){
+	if(0 && $ikariam['cities'][$city_id]['resources']['wine'] <= 500 && $resource > 500 && $shipsAvailable >= 1){
+		echo "Sent 500 wine to $city<br/>\n";
+		$resources['wine'] = 500;
+		transportFreight($wine_city_id,$city_id,$resources);
+	}
+}
 if($resource >= 500){
 	//Get a nice even ammount that's divisable by 500
 	$amountToTransport = ($resource - ($resource % 500));
@@ -56,5 +56,13 @@ if($resource >= 500){
 	//Send it!
 	transportFreight('Cloverfield', 'Wood for Sheep', $resources);
 }
+
+////Output examples
+//$json[] = $ikariam['cities']['names']['49447'];
+
+//$json = array_merge($json, $ikariam['cities']['global']['resources'],$ikariam['cities']['46774']['resources']);
+//echo json_encode(array_values($json));
+
+//echo json_encode($ikariam);
 
 echo "<pre>"; print_r ($ikariam); die("</pre>");
